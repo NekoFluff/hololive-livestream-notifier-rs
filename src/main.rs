@@ -186,6 +186,12 @@ async fn yt_pubsub_callback(
         Ok(livestream) => {
             let scraper = data::Scraper::new();
             let stream_dt = scraper.get_stream_dt(livestream_url).await.unwrap();
+
+            if stream_dt > Utc::now() {
+                println!("Stream already started ({})", livestream_url);
+                return StatusCode::OK;
+            }
+
             let stream_ts_ms = stream_dt.timestamp_millis();
             let updated_ts_ms = yt_feed
                 .entry
