@@ -4,8 +4,13 @@ mod data;
 mod discord;
 mod pubsub;
 
-use axum::Extension;
-use axum::{http::StatusCode, routing::post, Router};
+use axum::{
+    body::Body,
+    http::Request,
+    http::StatusCode,
+    routing::{get, post},
+    Extension, Router,
+};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, Timelike, Utc};
 use cron::LivestreamScheduler;
 use dotenv::dotenv;
@@ -41,6 +46,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(subscribe_to_feeds());
 
     let app = Router::new()
+        .route("/", get(default_handler))
+        .route("/yt-pubsub", get(default_handler))
         .route("/yt-pubsub", post(yt_pubsub_callback))
         .layer(Extension(livestream_scheduler));
     let addr = SocketAddr::from(([127, 0, 0, 1], std::env::var("PORT")?.parse()?));
@@ -164,6 +171,10 @@ async fn start_bot() {
         .run()
         .await
         .expect("Failed to start bot");
+}
+
+async fn default_handler(request: Request<Body>) {
+    println!("Default handler called {:?}", request);
 }
 
 async fn yt_pubsub_callback(
