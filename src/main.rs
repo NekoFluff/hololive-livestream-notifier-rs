@@ -70,11 +70,11 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 
 async fn subscribe_to_feeds() {
     let feeds = data::Mongo::new().await.get_feeds().await.unwrap();
+    let pubsub_callback_url = std::env::var("PUBSUB_CALLBACK_URL").ok().unwrap();
+    let pubsub_callback_url = reqwest::Url::parse(&pubsub_callback_url).ok().unwrap();
+    let mut pubsub = pubsub::PubSub::new(pubsub_callback_url);
 
     for feed in feeds {
-        let pubsub_callback_url = std::env::var("PUBSUB_CALLBACK_URL").ok().unwrap();
-        let mut pubsub = pubsub::PubSub::new(reqwest::Url::parse(&pubsub_callback_url)?);
-
         if let Err(e) = pubsub.subscribe(feed.topic_url.clone()).await {
             println!("Error subscribing to {:?}: {:?}", feed.topic_url, e);
             continue;
