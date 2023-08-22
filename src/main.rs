@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // tracing_subscriber::fmt::init();
     setup_existing_livestream_notifications(&livestream_scheduler).await;
-    subscribe_to_feeds().await?;
+    tokio::spawn(subscribe_to_feeds());
 
     let app = Router::new()
         .route("/yt-pubsub", post(yt_pubsub_callback))
@@ -68,11 +68,11 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
     }
 }
 
-async fn subscribe_to_feeds() -> Result<(), Box<dyn std::error::Error>> {
+async fn subscribe_to_feeds() {
     let feeds = data::Mongo::new().await.get_feeds().await.unwrap();
 
     for feed in feeds {
-        let pubsub_callback_url = std::env::var("PUBSUB_CALLBACK_URL")?;
+        let pubsub_callback_url = std::env::var("PUBSUB_CALLBACK_URL").ok().unwrap();
         let mut pubsub = pubsub::PubSub::new(reqwest::Url::parse(&pubsub_callback_url)?);
 
         if let Err(e) = pubsub.subscribe(feed.topic_url.clone()).await {
@@ -87,8 +87,6 @@ async fn subscribe_to_feeds() -> Result<(), Box<dyn std::error::Error>> {
             feed.topic_url.as_str()
         );
     }
-
-    Ok(())
 }
 
 async fn setup_existing_livestream_notifications(
