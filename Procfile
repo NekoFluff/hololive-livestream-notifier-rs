@@ -1,0 +1,1 @@
+web: ./target/release/hololive-livestream-notifier-rs
