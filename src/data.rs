@@ -94,10 +94,7 @@ impl Mongo {
         );
         let update_result = typed_collection.update_one(filter, update, options).await?;
 
-        println!(
-            "Upserted livestream with id {}",
-            update_result.upserted_id.unwrap()
-        );
+        println!("Upsert result {:?}", update_result);
         Ok(())
     }
 

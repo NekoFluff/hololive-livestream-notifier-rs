@@ -196,7 +196,7 @@ async fn yt_pubsub_callback(
             let scraper = data::Scraper::new();
             let stream_dt = scraper.get_stream_dt(livestream_url).await.unwrap();
 
-            if stream_dt > Utc::now() {
+            if stream_dt < Utc::now() {
                 println!("Stream already started ({})", livestream_url);
                 return StatusCode::OK;
             }
