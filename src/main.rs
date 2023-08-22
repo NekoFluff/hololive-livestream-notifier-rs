@@ -211,6 +211,7 @@ async fn yt_pubsub_callback(
                         livestream.updated = mongodb::bson::DateTime::from_millis(updated_ts_ms);
 
                         mongo.upsert_livestream(&livestream).await.unwrap();
+                        send_will_livestream_message(&livestream).await.unwrap();
                         setup_livestream_notifications(&livestream_scheduler, livestream)
                             .await
                             .unwrap();
@@ -225,6 +226,7 @@ async fn yt_pubsub_callback(
                         updated: mongodb::bson::DateTime::from_millis(updated_ts_ms),
                     };
                     mongo.insert_livestream(&livestream).await.unwrap();
+                    send_will_livestream_message(&livestream).await.unwrap();
                     setup_livestream_notifications(&livestream_scheduler, livestream)
                         .await
                         .unwrap();
@@ -243,8 +245,6 @@ pub async fn setup_livestream_notifications(
     livestream_scheduler: &Arc<Mutex<LivestreamScheduler>>,
     livestream: data::models::Livestream,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    send_will_livestream_message(&livestream).await.unwrap();
-
     let timestamp = livestream.date.timestamp_millis() / 1000;
     let date = DateTime::<Utc>::from_utc(
         NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap(),
