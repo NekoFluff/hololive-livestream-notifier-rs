@@ -1,4 +1,4 @@
-# Hololive Livestreams
+# Hololive Livestream  Notifier
 ## What is this?
 A discord bot to notify users when livestreams start on the Hololive YouTube channels.
 - Subscribes to youtube's push notifications via PubSubHubbub
