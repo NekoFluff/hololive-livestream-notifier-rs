@@ -1,0 +1,24 @@
+[package]
+name = "hololive-livestream-notifier-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mongodb = { version = "2.6.1", features = ["bson-serde_with"] }
+dotenv = "0.15.0"
+tokio = "1.32.0"
+serde = { version = "1.0", features = ["derive"] }
+futures = "0.3"
+scraper = "0.17.1"
+reqwest = { version = "0.11", features = ["json"] }
+axum = "0.6.20"
+quick-xml = { version = "0.30.0", features = ["serialize"] }
+chrono = { version = "0.4.26", features = ["serde"] }
+bson = "2.6.1"
+regex = "1.9.3"
+poise = "0.5.5"
+tokio-cron-scheduler = "0.9.4"
+uuid = "1.4.1"
+async-once-cell = "0.5.3"
