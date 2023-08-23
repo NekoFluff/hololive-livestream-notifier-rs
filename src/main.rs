@@ -2,7 +2,7 @@ mod commands;
 mod cron;
 mod data;
 mod discord;
-mod pubsub;
+use hololive_livestream_notifier_rs::pubsub;
 
 use axum::{
     body::Body,
