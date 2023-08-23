@@ -101,7 +101,7 @@ async fn subscribe_to_feeds() {
         }
 
         println!(
-            "Sent subscriptiopn request for {:?} {:?} ({:?})",
+            "Sent subscription request for {:?} {:?} ({:?})",
             feed.first_name,
             feed.last_name,
             feed.topic_url.as_str()
@@ -196,8 +196,8 @@ async fn yt_pubsub_challenge_handler(
     Query(params): Query<YTCallbackParams>,
 ) -> (StatusCode, String) {
     println!(
-        "Received [{:?}] challenge for channel {:?} [{:?}]. Subscription lasts for [{:?}] seconds. Responding with challenge.",
-        params.mode, params.channel_id, params.challenge, params.lease_seconds
+        "Received [{:?}] challenge for channel {:?}. Subscription lasts for [{:?}] seconds. Responding with challenge {:?}.",
+        params.mode, params.channel_id, params.lease_seconds, params.challenge
     );
 
     (StatusCode::OK, params.challenge.unwrap_or_default())
