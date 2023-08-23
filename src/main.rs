@@ -298,16 +298,43 @@ pub async fn setup_livestream_notifications(
         date.month()
     );
 
+    let stream_url = livestream.url.clone();
+    let livestream_copy = livestream.clone();
     livestream_scheduler
         .lock()
         .await
         .schedule_livestream_notification(
+            stream_url.as_str(),
             &cron_schedule_str,
-            livestream.url.to_string(),
+            Box::new(move |_job_uuid, _scheduler| {
+                let livestream_copy_copy = livestream_copy.clone();
+                Box::pin(async move {
+                    send_is_live_message(&livestream_copy_copy).await.unwrap();
+                })
+            }),
+        )
+        .await
+        .unwrap();
+
+    let date = date - chrono::Duration::minutes(15);
+    let cron_reminder_schedule_str = format!(
+        "{} {} {} {} {} *",
+        date.second(),
+        date.minute(),
+        date.hour(),
+        date.day(),
+        date.month()
+    );
+    livestream_scheduler
+        .lock()
+        .await
+        .schedule_livestream_notification(
+            format!("{}-reminder", stream_url).as_str(),
+            &cron_reminder_schedule_str,
             Box::new(move |_job_uuid, _scheduler| {
                 let livestream_copy = livestream.clone();
                 Box::pin(async move {
-                    send_is_live_message(&livestream_copy).await.unwrap();
+                    send_livestream_reminder(&livestream_copy).await.unwrap();
                 })
             }),
         )
@@ -331,6 +358,19 @@ pub async fn send_will_livestream_message(
         livestream.author,
         mst_dt.format("%a, %b %e, %l:%M %p MST"),
         livestream.url
+    );
+
+    discord::send_message_to_channel("hololive-notifications", &message).await?;
+
+    Ok(())
+}
+
+pub async fn send_livestream_reminder(
+    livestream: &data::models::Livestream,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let message = format!(
+        "[{}] Livestream starting in 15 minutes! - [{}]",
+        livestream.author, livestream.url
     );
 
     discord::send_message_to_channel("hololive-notifications", &message).await?;

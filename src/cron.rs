@@ -23,26 +23,26 @@ impl LivestreamScheduler {
 
     pub async fn schedule_livestream_notification(
         &mut self,
+        key: &str,
         schedule: &str,
-        livestream_url: String,
         run: Box<dyn FnMut(Uuid, JobScheduler) -> AsyncFn + Send + Sync>,
     ) -> Result<(), JobSchedulerError> {
-        self.cancel_livestream_notification(&livestream_url).await;
+        self.cancel_livestream_notification(key).await;
 
         let job_uuid = self.scheduler.add(Job::new_async(schedule, run)?).await?;
 
-        self.jobs.insert(livestream_url, job_uuid);
+        self.jobs.insert(key.to_string(), job_uuid);
 
         Ok(())
     }
 
-    async fn cancel_livestream_notification(&mut self, livestream_url: &str) {
-        if let Some(job_uuid) = self.jobs.get(livestream_url) {
+    async fn cancel_livestream_notification(&mut self, key: &str) {
+        if let Some(job_uuid) = self.jobs.get(key) {
             self.scheduler
                 .remove(job_uuid)
                 .await
                 .expect("The job should have been removed");
-            self.jobs.remove(livestream_url);
+            self.jobs.remove(key);
         }
     }
 }
