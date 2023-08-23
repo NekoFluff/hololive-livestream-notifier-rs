@@ -6,6 +6,7 @@ mod pubsub;
 
 use axum::{
     body::Body,
+    extract::Query,
     http::Request,
     http::StatusCode,
     routing::{get, post},
@@ -16,6 +17,7 @@ use cron::LivestreamScheduler;
 use dotenv::dotenv;
 use poise::serenity_prelude::{self as serenity};
 use quick_xml::de::from_str;
+use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::{env::var, time::Duration};
@@ -34,6 +36,17 @@ pub struct Data {}
 // TODO: Add tracing
 // TODO: Reorganize code
 
+#[derive(Debug, Deserialize)]
+pub struct YTCallbackParams {
+    #[serde(rename = "hub.challenge")]
+    challenge: Option<String>,
+    #[serde(rename = "hub.mode")]
+    mode: Option<String>,
+    channel_id: Option<String>,
+    #[serde(rename = "hub.lease_seconds")]
+    lease_seconds: Option<i64>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -47,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .route("/", get(default_handler))
-        .route("/yt-pubsub", get(default_handler))
+        .route("/yt-pubsub", get(yt_pubsub_challenge_handler))
         .route("/yt-pubsub", post(yt_pubsub_callback))
         .layer(Extension(livestream_scheduler));
     let addr = SocketAddr::from(([0, 0, 0, 0], std::env::var("PORT")?.parse()?));
@@ -88,7 +101,7 @@ async fn subscribe_to_feeds() {
         }
 
         println!(
-            "Subscribed to {:?} {:?} ({:?})",
+            "Sent subscriptiopn request for {:?} {:?} ({:?})",
             feed.first_name,
             feed.last_name,
             feed.topic_url.as_str()
@@ -173,8 +186,21 @@ async fn start_bot() {
         .expect("Failed to start bot");
 }
 
-async fn default_handler(request: Request<Body>) {
+async fn default_handler(request: Request<Body>) -> StatusCode {
     println!("Default handler called {:?}", request);
+
+    StatusCode::OK
+}
+
+async fn yt_pubsub_challenge_handler(
+    Query(params): Query<YTCallbackParams>,
+) -> (StatusCode, String) {
+    println!(
+        "Received [{:?}] challenge for channel {:?} [{:?}]. Subscription lasts for [{:?}] seconds. Responding with challenge.",
+        params.mode, params.channel_id, params.challenge, params.lease_seconds
+    );
+
+    (StatusCode::OK, params.challenge.unwrap_or_default())
 }
 
 async fn yt_pubsub_callback(
