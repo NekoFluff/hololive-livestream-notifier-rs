@@ -17,6 +17,21 @@ pub async fn send_message_to_channel(
     Ok(())
 }
 
+pub async fn send_message_to_user(
+    user_id: serenity::UserId,
+    message: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let http = serenity::http::client::Http::new(&std::env::var("DISCORD_TOKEN")?);
+
+    user_id
+        .create_dm_channel(&http)
+        .await?
+        .send_message(&http, |m| m.content(message))
+        .await?;
+
+    Ok(())
+}
+
 async fn get_channels(
     channel_name: &str,
 ) -> Result<Vec<serenity::model::channel::GuildChannel>, Box<dyn std::error::Error>> {

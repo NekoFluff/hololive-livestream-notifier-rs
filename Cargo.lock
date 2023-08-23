@@ -847,6 +847,7 @@ dependencies = [
  "reqwest",
  "scraper",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-cron-scheduler",
  "uuid",
