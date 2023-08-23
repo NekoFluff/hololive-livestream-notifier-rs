@@ -327,9 +327,9 @@ pub async fn send_will_livestream_message(
     );
 
     let message = format!(
-        "[{}] will livestream on {} - [{}]",
+        "[{}] will livestream on [{}] - [{}]",
         livestream.author,
-        mst_dt.format("%b %e, %l:%M %p MST"),
+        mst_dt.format("%a, %b %e, %l:%M %p MST"),
         livestream.url
     );
 
