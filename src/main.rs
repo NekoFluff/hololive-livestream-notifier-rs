@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let livestream_scheduler = Arc::new(Mutex::new(LivestreamScheduler::new().await));
 
     // tracing_subscriber::fmt::init();
-    setup_existing_livestream_notifications(&livestream_scheduler).await;
+    setup_existing_livestream_notifications(Arc::clone(&livestream_scheduler)).await;
     tokio::spawn(subscribe_to_feeds());
 
     let app = Router::new()
@@ -111,13 +111,13 @@ async fn subscribe_to_feeds() {
 }
 
 async fn setup_existing_livestream_notifications(
-    livestream_scheduler: &Arc<Mutex<LivestreamScheduler>>,
+    livestream_scheduler: Arc<Mutex<LivestreamScheduler>>,
 ) {
     let mongo = data::Mongo::new().await;
     let livestreams = mongo.get_livestreams().await.unwrap();
 
     for livestream in livestreams {
-        setup_livestream_notifications(livestream_scheduler, livestream)
+        setup_livestream_notifications(Arc::clone(&livestream_scheduler), livestream)
             .await
             .unwrap();
     }
@@ -250,9 +250,12 @@ async fn yt_pubsub_callback(
 
                         mongo.upsert_livestream(&livestream).await.unwrap();
                         send_will_livestream_message(&livestream).await.unwrap();
-                        setup_livestream_notifications(&livestream_scheduler, livestream)
-                            .await
-                            .unwrap();
+                        setup_livestream_notifications(
+                            Arc::clone(&livestream_scheduler),
+                            livestream,
+                        )
+                        .await
+                        .unwrap();
                     }
                 }
                 None => {
@@ -265,7 +268,7 @@ async fn yt_pubsub_callback(
                     };
                     mongo.insert_livestream(&livestream).await.unwrap();
                     send_will_livestream_message(&livestream).await.unwrap();
-                    setup_livestream_notifications(&livestream_scheduler, livestream)
+                    setup_livestream_notifications(Arc::clone(&livestream_scheduler), livestream)
                         .await
                         .unwrap();
                 }
@@ -280,7 +283,7 @@ async fn yt_pubsub_callback(
 }
 
 pub async fn setup_livestream_notifications(
-    livestream_scheduler: &Arc<Mutex<LivestreamScheduler>>,
+    livestream_scheduler: Arc<Mutex<LivestreamScheduler>>,
     livestream: data::models::Livestream,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let timestamp = livestream.date.timestamp_millis() / 1000;
@@ -299,7 +302,7 @@ pub async fn setup_livestream_notifications(
     );
 
     let stream_url = livestream.url.clone();
-    let livestream_copy = livestream.clone();
+    let livestream2 = livestream.clone();
     livestream_scheduler
         .lock()
         .await
@@ -307,9 +310,9 @@ pub async fn setup_livestream_notifications(
             stream_url.as_str(),
             &cron_schedule_str,
             Box::new(move |_job_uuid, _scheduler| {
-                let livestream_copy_copy = livestream_copy.clone();
+                let livestream = livestream.clone();
                 Box::pin(async move {
-                    send_is_live_message(&livestream_copy_copy).await.unwrap();
+                    send_is_live_message(&livestream).await.unwrap();
                 })
             }),
         )
@@ -332,9 +335,9 @@ pub async fn setup_livestream_notifications(
             format!("{}-reminder", stream_url).as_str(),
             &cron_reminder_schedule_str,
             Box::new(move |_job_uuid, _scheduler| {
-                let livestream_copy = livestream.clone();
+                let livestream = livestream2.clone();
                 Box::pin(async move {
-                    send_livestream_reminder(&livestream_copy).await.unwrap();
+                    send_livestream_reminder(&livestream).await.unwrap();
                 })
             }),
         )
