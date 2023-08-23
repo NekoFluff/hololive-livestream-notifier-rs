@@ -414,6 +414,8 @@ pub async fn send_is_live_message(
 }
 
 pub async fn send_message_to_developer(message: String) {
-    let user_id = serenity::UserId(var("DEVELOPER_USER_ID").unwrap().parse().unwrap());
-    send_message_to_user(user_id, &message).await.unwrap();
+    if let Ok(developer_id) = var("DEVELOPER_USER_ID") {
+        let user_id = serenity::UserId(developer_id.parse::<u64>().unwrap());
+        send_message_to_user(user_id, &message).await.unwrap();
+    }
 }
