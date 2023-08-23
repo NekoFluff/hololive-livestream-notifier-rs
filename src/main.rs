@@ -42,7 +42,8 @@ pub struct YTCallbackParams {
     challenge: Option<String>,
     #[serde(rename = "hub.mode")]
     mode: Option<String>,
-    channel_id: Option<String>,
+    #[serde(rename = "hub.topic")]
+    topic: Option<String>,
     #[serde(rename = "hub.lease_seconds")]
     lease_seconds: Option<i64>,
 }
@@ -196,8 +197,8 @@ async fn yt_pubsub_challenge_handler(
     Query(params): Query<YTCallbackParams>,
 ) -> (StatusCode, String) {
     println!(
-        "Received [{:?}] challenge for channel {:?}. Subscription lasts for [{:?}] seconds. Responding with challenge {:?}.",
-        params.mode, params.channel_id, params.lease_seconds, params.challenge
+        "Received [{:?}] challenge for topic {:?}. Subscription lasts for [{:?}] seconds. Responding with challenge {:?}.",
+        params.mode, params.topic, params.lease_seconds, params.challenge
     );
 
     (StatusCode::OK, params.challenge.unwrap_or_default())
