@@ -272,9 +272,11 @@ async fn yt_pubsub_callback(
                 livestream.date = mongodb::bson::DateTime::from_millis(stream_ts_ms);
                 livestream.updated = mongodb::bson::DateTime::from_millis(updated_ts_ms);
 
-                mongo.upsert_livestream(&livestream).await;
-                send_will_livestream_message(&livestream).await;
-                setup_livestream_notifications(Arc::clone(&livestream_scheduler), livestream).await;
+                mongo.upsert_livestream(&livestream).await.unwrap();
+                send_will_livestream_message(&livestream).await.unwrap();
+                setup_livestream_notifications(Arc::clone(&livestream_scheduler), livestream)
+                    .await
+                    .unwrap();
             }
         }
         None => {
