@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/yt-pubsub", get(default_handler))
         .route("/yt-pubsub", post(yt_pubsub_callback))
         .layer(Extension(livestream_scheduler));
-    let addr = SocketAddr::from(([127, 0, 0, 1], std::env::var("PORT")?.parse()?));
+    let addr = SocketAddr::from(([0, 0, 0, 0], std::env::var("PORT")?.parse()?));
 
     // tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
