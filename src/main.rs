@@ -2,15 +2,22 @@ mod commands;
 mod cron;
 mod data;
 mod discord;
-use futures::future::BoxFuture;
 use hololive_livestream_notifier_rs::pubsub;
 
+use axum::{
+    body::Body,
+    extract::Query,
+    http::Request,
+    http::StatusCode,
+    routing::{get, post},
+    Extension, Router,
+};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, Timelike, Utc};
-use core::panic;
 use cron::LivestreamScheduler;
 use dotenv::dotenv;
 use poise::serenity_prelude::{self as serenity};
 use quick_xml::de::from_str;
+use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::{env::var, time::Duration};
@@ -31,6 +38,18 @@ pub struct Data {}
 // TODO: Add tracing
 // TODO: Reorganize code
 
+#[derive(Debug, Deserialize)]
+pub struct YTCallbackParams {
+    #[serde(rename = "hub.challenge")]
+    challenge: Option<String>,
+    #[serde(rename = "hub.mode")]
+    mode: Option<String>,
+    #[serde(rename = "hub.topic")]
+    topic: Option<String>,
+    #[serde(rename = "hub.lease_seconds")]
+    lease_seconds: Option<i64>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -40,24 +59,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // tracing_subscriber::fmt::init();
     setup_existing_livestream_notifications(Arc::clone(&livestream_scheduler)).await;
-    let pubsub_callback_path = "/yt-pubsub";
-    let pubsub = Arc::new(Mutex::new(pubsub::PubSub::new(pubsub_callback_path)));
+    tokio::spawn(subscribe_to_feeds());
 
-    tokio::spawn(subscribe_to_feeds(
-        Arc::clone(&pubsub),
-        Arc::clone(&livestream_scheduler),
-    ));
+    let app = Router::new()
+        .route("/", get(default_handler))
+        .route("/yt-pubsub", get(yt_pubsub_challenge_handler))
+        .route("/yt-pubsub", post(yt_pubsub_callback))
+        .layer(Extension(livestream_scheduler));
+    let addr = SocketAddr::from(([0, 0, 0, 0], std::env::var("PORT")?.parse()?));
 
-    let port: u16 = var("PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse()
-        .unwrap();
-
-    let router = pubsub.lock().await.router().await;
-    println!("Starting PubSub on port {}", port);
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    // tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
-        .serve(router.into_make_service())
+        .serve(app.into_make_service())
         .await
         .unwrap();
 
@@ -78,20 +91,14 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
     }
 }
 
-async fn subscribe_to_feeds(
-    pubsub: Arc<Mutex<pubsub::PubSub>>,
-    livestream_scheduler: Arc<Mutex<LivestreamScheduler>>,
-) {
+async fn subscribe_to_feeds() {
     let feeds = data::Mongo::new().await.get_feeds().await.unwrap();
-    for feed in feeds {
-        let handler = subcription_handler(Arc::clone(&livestream_scheduler));
+    let pubsub_callback_url = std::env::var("PUBSUB_CALLBACK_URL").ok().unwrap();
+    let pubsub_callback_url = reqwest::Url::parse(&pubsub_callback_url).ok().unwrap();
+    let mut pubsub = pubsub::PubSub::new(pubsub_callback_url);
 
-        if let Err(e) = pubsub
-            .lock()
-            .await
-            .subscribe(feed.topic_url.clone(), handler)
-            .await
-        {
+    for feed in feeds {
+        if let Err(e) = pubsub.subscribe(feed.topic_url.clone()).await {
             println!("Error subscribing to {:?}: {:?}", feed.topic_url, e);
             continue;
         }
@@ -103,112 +110,6 @@ async fn subscribe_to_feeds(
             feed.topic_url.as_str()
         );
     }
-}
-
-fn subcription_handler(
-    livestream_scheduler: Arc<Mutex<LivestreamScheduler>>,
-) -> pubsub::CallbackHandler {
-    let inner_handler = |body: String| -> BoxFuture<'static, ()> {
-        println!("Received subscription callback: {:?}", body);
-
-        Box::pin(async move {
-            println!("Received pubsub callback: {:?}", body);
-
-            let yt_feed = from_str::<pubsub::Feed>(&body).unwrap();
-
-            println!("Parsed feed: {:?}", yt_feed);
-
-            {
-                let yt_feed_json_str = serde_json::to_string_pretty(&yt_feed).unwrap().to_string();
-                let yt_feed_json_str =
-                    format!("Processing feed:\n```json\n{}\n```", yt_feed_json_str);
-                tokio::spawn(send_message_to_developer(yt_feed_json_str));
-            }
-
-            let livestream_url = yt_feed.entry.first().unwrap().link.href.as_str();
-
-            let mongo = data::Mongo::new().await;
-            let livestream = mongo.get_livestream(livestream_url).await;
-
-            if livestream.is_err() {
-                println!("Error getting livestream: {}", livestream.err().unwrap());
-                return;
-            }
-
-            let livestream = livestream.unwrap();
-            let scraper = data::Scraper::new();
-            let stream_dt = scraper.get_stream_dt(livestream_url).await.unwrap();
-
-            // if stream_dt.is_err() {
-            //     tokio::spawn(send_message_to_developer(format!(
-            //         "[{}] Error getting stream datetime: {}",
-            //         livestream_url,
-            //         stream_dt.err().unwrap()
-            //     )));
-            //     return;
-            // }
-
-            // let stream_dt = stream_dt.unwrap();
-
-            if stream_dt < Utc::now() {
-                println!("Stream already started ({})", livestream_url);
-                return;
-            }
-
-            let stream_ts_ms = stream_dt.timestamp_millis();
-            let updated_ts_ms = yt_feed
-                .entry
-                .first()
-                .unwrap()
-                .updated
-                .unwrap()
-                .timestamp_millis();
-            println!("Stream start datetime: {:?}", stream_dt);
-
-            match livestream {
-                Some(mut livestream) => {
-                    let current_stream_ts_ms = livestream.date.timestamp_millis();
-
-                    if current_stream_ts_ms != stream_ts_ms {
-                        livestream.title = yt_feed.entry.first().unwrap().title.clone();
-                        livestream.author = yt_feed.entry.first().unwrap().author.name.clone();
-                        livestream.date = mongodb::bson::DateTime::from_millis(stream_ts_ms);
-                        livestream.updated = mongodb::bson::DateTime::from_millis(updated_ts_ms);
-
-                        mongo.upsert_livestream(&livestream).await.unwrap();
-                        send_will_livestream_message(&livestream).await.unwrap();
-                        setup_livestream_notifications(
-                            Arc::clone(&livestream_scheduler),
-                            livestream,
-                        )
-                        .await
-                        .unwrap();
-                    }
-                }
-                None => {
-                    let livestream = data::models::Livestream {
-                        title: yt_feed.entry.first().unwrap().title.clone(),
-                        author: yt_feed.entry.first().unwrap().author.name.clone(),
-                        url: livestream_url.to_string(),
-                        date: mongodb::bson::DateTime::from_millis(stream_ts_ms),
-                        updated: mongodb::bson::DateTime::from_millis(updated_ts_ms),
-                    };
-                    mongo.insert_livestream(&livestream).await.unwrap();
-                    send_will_livestream_message(&livestream).await.unwrap();
-                    setup_livestream_notifications(Arc::clone(&livestream_scheduler), livestream)
-                        .await
-                        .unwrap();
-                }
-            }
-
-            tokio::spawn(send_message_to_developer(format!(
-                "Processed livestream: {}",
-                livestream_url
-            )));
-        })
-    };
-
-    Box::new(inner_handler)
 }
 
 async fn setup_existing_livestream_notifications(
@@ -286,6 +187,120 @@ async fn start_bot() {
         .run()
         .await
         .expect("Failed to start bot");
+}
+
+async fn default_handler(request: Request<Body>) -> StatusCode {
+    println!("Default handler called {:?}", request);
+
+    StatusCode::OK
+}
+
+async fn yt_pubsub_challenge_handler(
+    Query(params): Query<YTCallbackParams>,
+) -> (StatusCode, String) {
+    println!(
+        "Received [{:?}] challenge for topic {:?}. Subscription lasts for [{:?}] seconds. Responding with challenge {:?}.",
+        params.mode, params.topic, params.lease_seconds, params.challenge
+    );
+
+    (StatusCode::OK, params.challenge.unwrap_or_default())
+}
+
+async fn yt_pubsub_callback(
+    Extension(livestream_scheduler): Extension<Arc<Mutex<cron::LivestreamScheduler>>>,
+    payload: String,
+) -> StatusCode {
+    println!("Processing youtube feed: {}", payload);
+
+    let yt_feed = from_str::<pubsub::YoutubeFeed>(&payload).unwrap();
+
+    println!("Parsed feed: {:?}", yt_feed);
+
+    {
+        let yt_feed_json_str = serde_json::to_string_pretty(&yt_feed).unwrap().to_string();
+        let yt_feed_json_str = format!("Processing feed:\n```json\n{}\n```", yt_feed_json_str);
+        tokio::spawn(send_message_to_developer(yt_feed_json_str));
+    }
+
+    let livestream_url = yt_feed.entry.first().unwrap().link.href.as_str();
+
+    let mongo = data::Mongo::new().await;
+    let livestream = mongo.get_livestream(livestream_url).await;
+
+    if livestream.is_err() {
+        println!("Error getting livestream: {}", livestream.err().unwrap());
+        return StatusCode::OK;
+    }
+
+    let livestream = livestream.unwrap();
+    let scraper = data::Scraper::new();
+    let stream_dt = scraper.get_stream_dt(livestream_url).await.unwrap();
+
+    // if stream_dt.is_err() {
+    //     tokio::spawn(send_message_to_developer(format!(
+    //         "[{}] Error getting stream datetime: {}",
+    //         livestream_url,
+    //         stream_dt.err().unwrap()
+    //     )));
+    //     return StatusCode::OK;
+    // }
+
+    // let stream_dt = stream_dt.unwrap();
+
+    if stream_dt < Utc::now() {
+        println!("Stream already started ({})", livestream_url);
+        return StatusCode::OK;
+    }
+
+    let stream_ts_ms = stream_dt.timestamp_millis();
+    let updated_ts_ms = yt_feed
+        .entry
+        .first()
+        .unwrap()
+        .updated
+        .unwrap()
+        .timestamp_millis();
+    println!("Stream start datetime: {:?}", stream_dt);
+
+    match livestream {
+        Some(mut livestream) => {
+            let current_stream_ts_ms = livestream.date.timestamp_millis();
+
+            if current_stream_ts_ms != stream_ts_ms {
+                livestream.title = yt_feed.entry.first().unwrap().title.clone();
+                livestream.author = yt_feed.entry.first().unwrap().author.name.clone();
+                livestream.date = mongodb::bson::DateTime::from_millis(stream_ts_ms);
+                livestream.updated = mongodb::bson::DateTime::from_millis(updated_ts_ms);
+
+                mongo.upsert_livestream(&livestream).await.unwrap();
+                send_will_livestream_message(&livestream).await.unwrap();
+                setup_livestream_notifications(Arc::clone(&livestream_scheduler), livestream)
+                    .await
+                    .unwrap();
+            }
+        }
+        None => {
+            let livestream = data::models::Livestream {
+                title: yt_feed.entry.first().unwrap().title.clone(),
+                author: yt_feed.entry.first().unwrap().author.name.clone(),
+                url: livestream_url.to_string(),
+                date: mongodb::bson::DateTime::from_millis(stream_ts_ms),
+                updated: mongodb::bson::DateTime::from_millis(updated_ts_ms),
+            };
+            mongo.insert_livestream(&livestream).await.unwrap();
+            send_will_livestream_message(&livestream).await.unwrap();
+            setup_livestream_notifications(Arc::clone(&livestream_scheduler), livestream)
+                .await
+                .unwrap();
+        }
+    }
+
+    tokio::spawn(send_message_to_developer(format!(
+        "Processed livestream: {}",
+        livestream_url
+    )));
+
+    StatusCode::OK
 }
 
 pub async fn setup_livestream_notifications(
