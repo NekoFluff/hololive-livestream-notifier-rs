@@ -162,7 +162,7 @@ impl Scraper {
                     Utc,
                 ))
             }
-            None => Err("No timestamp found".into()),
+            None => Err(format!("No timestamp found for URL: {}", url).into()),
         }
     }
 }
