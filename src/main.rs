@@ -19,9 +19,9 @@ use dotenv::dotenv;
 use poise::serenity_prelude::{self as serenity};
 use quick_xml::de::from_str;
 use serde::Deserialize;
-use std::net::SocketAddr;
-use std::sync::Arc;
 use std::{env::var, time::Duration};
+use std::{net::SocketAddr, os::windows::process};
+use std::{process::abort, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::discord::send_message_to_user;
@@ -54,6 +54,20 @@ pub struct YTCallbackParams {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
+
+    // --- Start of temp code
+    // let temp_livestream_scheduler = Arc::new(Mutex::new(LivestreamScheduler::new().await));
+
+    // process_url(
+    //     Arc::clone(&temp_livestream_scheduler),
+    //     "https://www.youtube.com/watch?v=I9zWxlP1VAM",
+    //     0,
+    // )
+    // .await
+    // .unwrap();
+
+    // abort();
+    // --- End of temp code
 
     tokio::spawn(start_bot());
     let livestream_scheduler = Arc::new(Mutex::new(LivestreamScheduler::new().await));
@@ -224,6 +238,29 @@ async fn yt_pubsub_callback(
     }
 
     let livestream_url = yt_feed.entry.first().unwrap().link.href.as_str();
+
+    process_url(
+        livestream_scheduler,
+        livestream_url,
+        yt_feed
+            .entry
+            .first()
+            .unwrap()
+            .updated
+            .unwrap()
+            .timestamp_millis(),
+    )
+    .await
+    .unwrap();
+
+    StatusCode::OK
+}
+
+async fn process_url(
+    livestream_scheduler: Arc<Mutex<LivestreamScheduler>>,
+    livestream_url: &str,
+    updated_ts_ms: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
     let video_id = if let Some(captures) = regex::Regex::new(r"v=([^&]+)")
         .unwrap()
         .captures(livestream_url)
@@ -238,7 +275,7 @@ async fn yt_pubsub_callback(
 
     if livestream.is_err() {
         println!("Error getting livestream: {}", livestream.err().unwrap());
-        return StatusCode::OK;
+        return Ok(());
     }
 
     let livestream = livestream.unwrap();
@@ -262,17 +299,10 @@ async fn yt_pubsub_callback(
 
     if stream_dt < Utc::now() {
         println!("Stream already started ({})", livestream_url);
-        return StatusCode::OK;
+        return Ok(());
     }
 
     let stream_ts_ms = stream_dt.timestamp_millis();
-    let updated_ts_ms = yt_feed
-        .entry
-        .first()
-        .unwrap()
-        .updated
-        .unwrap()
-        .timestamp_millis();
     println!("Stream start datetime: {:?}", stream_dt);
 
     match livestream {
@@ -280,8 +310,8 @@ async fn yt_pubsub_callback(
             let current_stream_ts_ms = livestream.date.timestamp_millis();
 
             if current_stream_ts_ms != stream_ts_ms {
-                livestream.title = yt_feed.entry.first().unwrap().title.clone();
-                livestream.author = yt_feed.entry.first().unwrap().author.name.clone();
+                livestream.title = data.title;
+                livestream.author = data.channel_title;
                 livestream.date = mongodb::bson::DateTime::from_millis(stream_ts_ms);
                 livestream.updated = mongodb::bson::DateTime::from_millis(updated_ts_ms);
 
@@ -294,8 +324,8 @@ async fn yt_pubsub_callback(
         }
         None => {
             let livestream = data::models::Livestream {
-                title: yt_feed.entry.first().unwrap().title.clone(),
-                author: yt_feed.entry.first().unwrap().author.name.clone(),
+                title: data.title,
+                author: data.channel_title,
                 url: livestream_url.to_string(),
                 date: mongodb::bson::DateTime::from_millis(stream_ts_ms),
                 updated: mongodb::bson::DateTime::from_millis(updated_ts_ms),
@@ -313,7 +343,7 @@ async fn yt_pubsub_callback(
         livestream_url
     )));
 
-    StatusCode::OK
+    Ok(())
 }
 
 pub async fn setup_livestream_notifications(

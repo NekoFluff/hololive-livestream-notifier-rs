@@ -45,6 +45,7 @@ impl YoutubeClient {
 
         let description = snippet["description"].as_str().ok_or("No description")?;
         let channel_id = snippet["channelId"].as_str().ok_or("No channelId")?;
+        let channel_title = snippet["channelTitle"].as_str().ok_or("No channelTitle")?;
 
         let live_streaming_details = item["liveStreamingDetails"]
             .as_object()
@@ -59,7 +60,7 @@ impl YoutubeClient {
             title: title.to_string(),
             description: description.to_string(),
             channel_id: channel_id.to_string(),
-            channel_title: "Title".to_string(),
+            channel_title: channel_title.to_string(),
             // tags,
             livestream_start_dt: chrono::DateTime::parse_from_rfc3339(livestream_start_dt)?
                 .to_utc(),
