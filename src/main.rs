@@ -2,6 +2,7 @@ mod commands;
 mod cron;
 mod data;
 mod discord;
+mod youtube;
 use hololive_livestream_notifier_rs::pubsub;
 
 use axum::{
@@ -223,6 +224,14 @@ async fn yt_pubsub_callback(
     }
 
     let livestream_url = yt_feed.entry.first().unwrap().link.href.as_str();
+    let video_id = if let Some(captures) = regex::Regex::new(r"v=([^&]+)")
+        .unwrap()
+        .captures(livestream_url)
+    {
+        captures.get(1).map_or("", |m| m.as_str())
+    } else {
+        ""
+    };
 
     let mongo = data::Mongo::new().await;
     let livestream = mongo.get_livestream(livestream_url).await;
@@ -233,8 +242,10 @@ async fn yt_pubsub_callback(
     }
 
     let livestream = livestream.unwrap();
-    let scraper = data::Scraper::new();
-    let stream_dt = scraper.get_stream_dt(livestream_url).await.unwrap();
+    let data = youtube::YoutubeClient::new()
+        .get_video_metadata(video_id)
+        .await
+        .unwrap();
 
     // if stream_dt.is_err() {
     //     tokio::spawn(send_message_to_developer(format!(
@@ -246,6 +257,8 @@ async fn yt_pubsub_callback(
     // }
 
     // let stream_dt = stream_dt.unwrap();
+
+    let stream_dt = data.livestream_start_dt;
 
     if stream_dt < Utc::now() {
         println!("Stream already started ({})", livestream_url);
