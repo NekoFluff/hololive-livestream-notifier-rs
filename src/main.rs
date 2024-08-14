@@ -19,9 +19,9 @@ use dotenv::dotenv;
 use poise::serenity_prelude::{self as serenity};
 use quick_xml::de::from_str;
 use serde::Deserialize;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::{env::var, time::Duration};
-use std::{net::SocketAddr, os::windows::process};
-use std::{process::abort, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::discord::send_message_to_user;
